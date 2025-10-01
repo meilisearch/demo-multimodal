@@ -89,6 +89,8 @@ export function SearchInterface({
   const [facetSearchResults, setFacetSearchResults] = React.useState<Record<string, FacetValue[]>>({})
   const [loading, setLoading] = React.useState(false)
   const [isInitialLoad, setIsInitialLoad] = React.useState(true)
+  const [hasMore, setHasMore] = React.useState(false)
+  const [loadingMore, setLoadingMore] = React.useState(false)
 
   // Fixed configurations for the products_2 index
   const [displayConfigs] = React.useState<Record<string, DisplayConfig>>({
@@ -336,7 +338,9 @@ export function SearchInterface({
 
 
 
-  const performSearch = React.useCallback(async (query?: string) => {
+  const offsetRef = React.useRef(0)
+
+  const performSearch = React.useCallback(async (query?: string, loadMore = false) => {
     if (!selectedIndex) {
       setResults([])
       setFacets({})
@@ -344,9 +348,16 @@ export function SearchInterface({
     }
 
     const searchTerm = query !== undefined ? query : searchQuery
-    
-    setLoading(true)
-    setIsInitialLoad(false)
+    const currentOffset = loadMore ? offsetRef.current : 0
+
+    if (loadMore) {
+      setLoadingMore(true)
+    } else {
+      setLoading(true)
+      setIsInitialLoad(false)
+      offsetRef.current = 0
+    }
+
     try {
       const baseFilter = Object.entries(selectedFacets)
         .filter(([, values]) => values.length > 0)
@@ -377,6 +388,8 @@ export function SearchInterface({
       const searchOptions: Record<string, unknown> = {
         facets: ["*"],
         filter: allFilters,
+        limit: 12,
+        offset: currentOffset,
         ...(sortParam && { sort: sortParam }),
         ...(searchTerm && {
           hybrid: {
@@ -399,14 +412,28 @@ export function SearchInterface({
         }))
       })
 
-      setResults(processedResults)
+      if (loadMore) {
+        setResults(prev => [...prev, ...processedResults])
+        offsetRef.current = currentOffset + processedResults.length
+      } else {
+        setResults(processedResults)
+        offsetRef.current = processedResults.length
+      }
+
       setFacets(transformedFacets)
+      setHasMore(processedResults.length === 12)
     } catch (error) {
       console.error("Search error:", error)
-      setResults([])
-      setFacets({})
+      if (!loadMore) {
+        setResults([])
+        setFacets({})
+      }
     } finally {
-      setLoading(false)
+      if (loadMore) {
+        setLoadingMore(false)
+      } else {
+        setLoading(false)
+      }
     }
   }, [client, selectedIndex, searchQuery, selectedFacets, rangeFilters, currentSort, semanticRatio])
 
@@ -813,9 +840,23 @@ export function SearchInterface({
             )}
 
             {!loading && results.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {results.map((result, index) => renderResultCard(result, index))}
-              </div>
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {results.map((result, index) => renderResultCard(result, index))}
+                </div>
+                {hasMore && (
+                  <div className="flex justify-center mt-6">
+                    <Button
+                      onClick={() => performSearch(undefined, true)}
+                      disabled={loadingMore}
+                      variant="outline"
+                      size="lg"
+                    >
+                      {loadingMore ? "Loading..." : "Load More"}
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
