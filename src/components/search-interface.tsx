@@ -92,8 +92,8 @@ export function SearchInterface({
 
   // Fixed configurations for the products_2 index
   const [displayConfigs] = React.useState<Record<string, DisplayConfig>>({
-    products_2: {
-      indexUid: 'products_2',
+    products_multimodal: {
+      indexUid: 'products_multimodal',
       primaryText: 'name',
       secondaryText: 'brand',
       imageUrl: 'image_url',
@@ -104,8 +104,8 @@ export function SearchInterface({
     }
   })
   const [facetConfigs] = React.useState<Record<string, FacetConfig>>({
-    products_2: {
-      indexUid: 'products_2',
+    products_multimodal: {
+      indexUid: 'products_multimodal',
       visibleFacets: ['color.original_name', 'category_page_id', 'brand'],
       facetDisplayNames: {
         'color.original_name': 'Color',
@@ -117,8 +117,8 @@ export function SearchInterface({
     }
   })
   const [sortConfigs] = React.useState<Record<string, SortConfig>>({
-    products_2: {
-      indexUid: 'products_2',
+    products_multimodal: {
+      indexUid: 'products_multimodal',
       visibleSorts: ['price.value:asc', 'price.value:desc', 'reviews.bayesian_avg:desc', 'reviews.bayesian_avg:asc'],
       sortDisplayNames: {
         'price.value:asc': 'Price: Low to High',
