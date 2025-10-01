@@ -88,6 +88,7 @@ export function SearchInterface({
   const [facetSearchQueries, setFacetSearchQueries] = React.useState<Record<string, string>>({})
   const [facetSearchResults, setFacetSearchResults] = React.useState<Record<string, FacetValue[]>>({})
   const [loading, setLoading] = React.useState(false)
+  const [isInitialLoad, setIsInitialLoad] = React.useState(true)
 
   // Fixed configurations for the products_2 index
   const [displayConfigs] = React.useState<Record<string, DisplayConfig>>({
@@ -118,12 +119,14 @@ export function SearchInterface({
   const [sortConfigs] = React.useState<Record<string, SortConfig>>({
     products_2: {
       indexUid: 'products_2',
-      visibleSorts: ['price.value', 'reviews.rating'],
+      visibleSorts: ['price.value:asc', 'price.value:desc', 'reviews.bayesian_avg:desc', 'reviews.bayesian_avg:asc'],
       sortDisplayNames: {
-        'price.value': 'Price',
-        'reviews.rating': 'Rating'
+        'price.value:asc': 'Price: Low to High',
+        'price.value:desc': 'Price: High to Low',
+        'reviews.bayesian_avg:desc': 'Rating: Highest First',
+        'reviews.bayesian_avg:asc': 'Rating: Lowest First'
       },
-      sortOrder: ['price.value', 'reviews.rating'],
+      sortOrder: ['reviews.bayesian_avg:desc', 'reviews.bayesian_avg:asc', 'price.value:asc', 'price.value:desc'],
       defaultSort: 'relevance'
     }
   })
@@ -166,7 +169,7 @@ export function SearchInterface({
     return (
       <div className="flex items-center gap-1">
         <div className="flex">{stars}</div>
-        <span className="text-sm font-medium">{rating.toFixed(1)}</span>
+        <span className="text-sm font-medium">{rating.toFixed(2)}</span>
         {count && <span className="text-xs text-muted-foreground">({count})</span>}
       </div>
     )
@@ -300,9 +303,9 @@ export function SearchInterface({
                 // Special handling for reviews field
                 if (field.fieldName === 'reviews') {
                   const reviewsData = result[field.fieldName] as { rating?: number; count?: number; bayesian_avg?: number }
-                  if (!reviewsData || (!reviewsData.rating && !reviewsData.bayesian_avg)) return null
+                  if (!reviewsData) return null
 
-                  const rating = reviewsData.rating || reviewsData.bayesian_avg || 0
+                  const rating = reviewsData.bayesian_avg ?? reviewsData.rating ?? 0
                   const count = reviewsData.count
 
                   return (
@@ -331,21 +334,6 @@ export function SearchInterface({
     )
   }
 
-  // Unused function - keeping for backward compatibility
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const matchesRule = (result: SearchResult, rule: string): boolean => {
-    if (rule.includes(":")) {
-      // Field-based rule: "fieldName:value"
-      const [fieldName, fieldValue] = rule.split(":", 2)
-      const resultValue = result[fieldName]
-      return Boolean(resultValue) && String(resultValue).toLowerCase().includes(fieldValue.toLowerCase())
-    } else {
-      // Keyword-based rule: search in all values
-      return Object.values(result).some(value => 
-        String(value).toLowerCase().includes(rule.toLowerCase())
-      )
-    }
-  }
 
 
   const performSearch = React.useCallback(async (query?: string) => {
@@ -358,6 +346,7 @@ export function SearchInterface({
     const searchTerm = query !== undefined ? query : searchQuery
     
     setLoading(true)
+    setIsInitialLoad(false)
     try {
       const baseFilter = Object.entries(selectedFacets)
         .filter(([, values]) => values.length > 0)
@@ -391,7 +380,7 @@ export function SearchInterface({
         ...(sortParam && { sort: sortParam }),
         ...(searchTerm && {
           hybrid: {
-            embedder: 'openai',
+            embedder: 'voyage',
             semanticRatio: semanticRatio
           }
         })
@@ -422,7 +411,7 @@ export function SearchInterface({
   }, [client, selectedIndex, searchQuery, selectedFacets, rangeFilters, currentSort, semanticRatio])
 
   React.useEffect(() => {
-    const debounceTimer = setTimeout(performSearch, 300)
+    const debounceTimer = setTimeout(performSearch, 150)
     return () => clearTimeout(debounceTimer)
   }, [performSearch])
 
@@ -590,11 +579,8 @@ export function SearchInterface({
     sortConfig.sortOrder.forEach(sortKey => {
       if (sortConfig.visibleSorts.includes(sortKey)) {
         const displayName = sortConfig.sortDisplayNames[sortKey] || sortKey
-        // Add both ascending and descending options
-        sorts.push(
-          { value: `${sortKey}:asc`, label: `${displayName} (asc)` },
-          { value: `${sortKey}:desc`, label: `${displayName} (desc)` }
-        )
+        // Sort keys already include direction, so use them directly
+        sorts.push({ value: sortKey, label: displayName })
       }
     })
     
@@ -603,13 +589,6 @@ export function SearchInterface({
 
   // Get sort display name (currently unused but kept for potential future use)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const getSortDisplayName = (sortKey: string): string => {
-    const sortConfig = sortConfigs[selectedIndex]
-    if (sortConfig && sortConfig.sortDisplayNames[sortKey]) {
-      return sortConfig.sortDisplayNames[sortKey]
-    }
-    return sortKey
-  }
 
   // Query matching logic for pin rules
   // Removed all merchandising helper functions
@@ -621,7 +600,7 @@ export function SearchInterface({
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center gap-3">
             <img 
-              src="/meilimerch.svg" 
+              src="/meili_logo.svg" 
               alt="Meilisearch" 
               className="h-12 w-auto"
             />
@@ -638,8 +617,13 @@ export function SearchInterface({
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
+              className="pl-10 pr-10"
             />
+            {loading && !isInitialLoad && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-md">
@@ -808,7 +792,7 @@ export function SearchInterface({
           </div>
 
           <div className="flex-1">
-            {loading && (
+            {loading && isInitialLoad && (
               <div className="text-center py-8">
                 <div className="text-muted-foreground">Searching...</div>
               </div>
