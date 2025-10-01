@@ -602,7 +602,7 @@ export function SearchInterface({
             <img 
               src="/meili_logo.svg" 
               alt="Meilisearch" 
-              className="h-12 w-auto"
+              className="h-8 w-auto"
             />
           </div>
         </div>
