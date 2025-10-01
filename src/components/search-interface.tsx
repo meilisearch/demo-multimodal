@@ -625,14 +625,15 @@ export function SearchInterface({
       {/* Header */}
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center gap-3">
-            <img 
-              src="/meili_logo.svg" 
-              alt="Meilisearch" 
+          <div className="flex items-center justify-between">
+            <img
+              src="/meili_logo.svg"
+              alt="Meilisearch"
               className="h-6 w-auto"
             />
+            <span className="text-sm font-medium text-muted-foreground absolute left-1/2 -translate-x-1/2">Multimodal AI-powered search</span>
           </div>
-          
+
         </div>
       </header>
 
