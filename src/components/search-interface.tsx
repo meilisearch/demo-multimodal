@@ -639,7 +639,11 @@ export function SearchInterface({
             />
             <span className="text-sm text-muted-foreground w-8">{Math.round(semanticRatio * 100)}%</span>
           </div>
+        </div>
 
+        <div className="flex gap-6">
+          <div className="w-64 space-y-4">
+          <h3 className="font-semibold text-sm">Sort</h3>
           <div className="flex items-center gap-1">
             <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
             <Select value={currentSort} onValueChange={setCurrentSort}>
@@ -655,11 +659,6 @@ export function SearchInterface({
               </SelectContent>
             </Select>
           </div>
-
-        </div>
-
-        <div className="flex gap-6">
-          <div className="w-64 space-y-4">
             {Object.keys(facets).length > 0 && (
               <div className="space-y-4">
                 <h3 className="font-semibold text-sm">Filters</h3>
