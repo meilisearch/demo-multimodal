@@ -628,7 +628,7 @@ export function SearchInterface({
           </div>
 
           <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-md">
-            <span className="text-sm text-muted-foreground whitespace-nowrap">Semantic:</span>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">AI</span>
             <input
               type="range"
               min="0"
