@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { MeiliSearch } from "meilisearch"
-import { Search, ChevronDown, ChevronUp, ArrowUpDown, Star } from "lucide-react"
+import { Search, ChevronDown, ChevronUp, ArrowUpDown, Star, Image, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -92,6 +92,9 @@ export function SearchInterface({
   const [hasMore, setHasMore] = React.useState(false)
   const [loadingMore, setLoadingMore] = React.useState(false)
   const [showSuggestions, setShowSuggestions] = React.useState(false)
+  const [uploadedImage, setUploadedImage] = React.useState<File | null>(null)
+  const [imagePreview, setImagePreview] = React.useState<string | null>(null)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   // Example queries for suggestions
   const exampleQueries = [
@@ -348,6 +351,27 @@ export function SearchInterface({
 
   const offsetRef = React.useRef(0)
 
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      setUploadedImage(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64Data = (reader.result as string).split(',')[1] // Remove data:image/...;base64, prefix
+        setImagePreview(base64Data)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const clearImage = () => {
+    setUploadedImage(null)
+    setImagePreview(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+  }
+
   const performSearch = React.useCallback(async (query?: string, loadMore = false) => {
     if (!selectedIndex) {
       setResults([])
@@ -399,7 +423,19 @@ export function SearchInterface({
         limit: 12,
         offset: currentOffset,
         ...(sortParam && { sort: sortParam }),
-        ...(searchTerm && {
+        ...(imagePreview && uploadedImage && {
+          media: {
+            image: {
+              mime: uploadedImage.type,
+              data: imagePreview
+            }
+          },
+          hybrid: {
+            embedder: 'voyage',
+            semanticRatio: semanticRatio
+          }
+        }),
+        ...(!imagePreview && searchTerm && {
           hybrid: {
             embedder: 'voyage',
             semanticRatio: semanticRatio
@@ -407,7 +443,7 @@ export function SearchInterface({
         })
       }
 
-      const searchResult = await client.index(selectedIndex).search(searchTerm || "", searchOptions)
+      const searchResult = await client.index(selectedIndex).search(imagePreview ? null : searchTerm || "", searchOptions)
       const processedResults = searchResult.hits as SearchResult[]
       const facetDistribution = searchResult.facetDistribution || {}
 
@@ -443,7 +479,7 @@ export function SearchInterface({
         setLoading(false)
       }
     }
-  }, [client, selectedIndex, searchQuery, selectedFacets, rangeFilters, currentSort, semanticRatio])
+  }, [client, selectedIndex, searchQuery, selectedFacets, rangeFilters, currentSort, semanticRatio, imagePreview, uploadedImage])
 
   React.useEffect(() => {
     const debounceTimer = setTimeout(performSearch, 150)
@@ -684,6 +720,24 @@ export function SearchInterface({
             )}
           </div>
 
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="hidden"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              title="Upload image for search"
+            >
+              <Image className="h-4 w-4" />
+            </Button>
+          </div>
+
           <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-md">
             <span className="text-sm text-muted-foreground whitespace-nowrap">AI</span>
             <input
@@ -698,6 +752,35 @@ export function SearchInterface({
             <span className="text-sm text-muted-foreground w-8">{Math.round(semanticRatio * 100)}%</span>
           </div>
         </div>
+
+        {imagePreview && uploadedImage && (
+          <div className="mb-4">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-4">
+                  <div className="relative w-24 h-24 rounded overflow-hidden border">
+                    <img
+                      src={`data:${uploadedImage.type};base64,${imagePreview}`}
+                      alt="Uploaded"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Searching with uploaded image</p>
+                    <p className="text-xs text-muted-foreground">Image-to-image search active</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={clearImage}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         <div className="flex gap-6">
           <div className="w-64 space-y-4">
