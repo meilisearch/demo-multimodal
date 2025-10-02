@@ -32,7 +32,6 @@ interface FacetValue {
   count: number
 }
 
-
 interface AdditionalField {
   id: string
   fieldName: string
@@ -50,28 +49,76 @@ interface DisplayConfig {
 interface FacetConfig {
   indexUid: string
   visibleFacets: string[]
-  facetDisplayNames: Record<string, string> // facetKey -> display name
-  facetOrder: string[] // ordered list of facet keys
-  rangeFilters: Record<string, boolean> // facetKey -> whether to use range filter instead of discrete values
+  facetDisplayNames: Record<string, string>
+  facetOrder: string[]
+  rangeFilters: Record<string, boolean>
 }
 
 interface SortConfig {
   indexUid: string
   visibleSorts: string[]
-  sortDisplayNames: Record<string, string> // sortKey -> display name
-  sortOrder: string[] // ordered list of sort keys
-  defaultSort?: string // default sort option
+  sortDisplayNames: Record<string, string>
+  sortOrder: string[]
+  defaultSort?: string
 }
-
-
-
-
-
 
 interface SearchInterfaceProps {
   meilisearchUrl?: string
   apiKey?: string
 }
+
+// Configuration constants
+const DISPLAY_CONFIGS: Record<string, DisplayConfig> = {
+  products_multimodal: {
+    indexUid: 'products_multimodal',
+    primaryText: 'name',
+    secondaryText: 'brand',
+    imageUrl: 'image_url',
+    additionalFields: [
+      { id: 'price-field', fieldName: 'price', label: 'Price' },
+      { id: 'reviews-field', fieldName: 'reviews', label: 'Reviews' }
+    ]
+  }
+}
+
+const FACET_CONFIGS: Record<string, FacetConfig> = {
+  products_multimodal: {
+    indexUid: 'products_multimodal',
+    visibleFacets: ['color.original_name', 'category_page_id', 'brand'],
+    facetDisplayNames: {
+      'color.original_name': 'Color',
+      'category_page_id': 'Category',
+      'brand': 'Brand'
+    },
+    facetOrder: ['color.original_name', 'category_page_id', 'brand'],
+    rangeFilters: {}
+  }
+}
+
+const SORT_CONFIGS: Record<string, SortConfig> = {
+  products_multimodal: {
+    indexUid: 'products_multimodal',
+    visibleSorts: ['price.value:asc', 'price.value:desc', 'reviews.bayesian_avg:desc', 'reviews.bayesian_avg:asc'],
+    sortDisplayNames: {
+      'price.value:asc': 'Price: Low to High',
+      'price.value:desc': 'Price: High to Low',
+      'reviews.bayesian_avg:desc': 'Rating: Highest First',
+      'reviews.bayesian_avg:asc': 'Rating: Lowest First'
+    },
+    sortOrder: ['reviews.bayesian_avg:desc', 'reviews.bayesian_avg:asc', 'price.value:asc', 'price.value:desc'],
+    defaultSort: 'relevance'
+  }
+}
+
+const EXAMPLE_QUERIES = [
+  "bag with a heart in the center",
+  "retro sneakers",
+  "warm clothes for a ski trip"
+]
+
+const RESULTS_LIMIT = 12
+const SEARCH_DEBOUNCE_MS = 150
+const RANKING_SCORE_THRESHOLD = 0.65
 
 export function SearchInterface({
   meilisearchUrl = process.env.NEXT_PUBLIC_MEILISEARCH_URL || "http://localhost:7700",
@@ -79,86 +126,321 @@ export function SearchInterface({
 }: SearchInterfaceProps) {
   const [client] = React.useState(() => new MeiliSearch({ host: meilisearchUrl, apiKey }))
   const [selectedIndex] = React.useState(process.env.NEXT_PUBLIC_DEFAULT_INDEX || "")
+
+  // Search state
   const [searchQuery, setSearchQuery] = React.useState("")
   const [semanticRatio, setSemanticRatio] = React.useState(0.5)
   const [results, setResults] = React.useState<SearchResult[]>([])
+  const [currentSort, setCurrentSort] = React.useState<string>("relevance")
+  const [loading, setLoading] = React.useState(false)
+  const [isInitialLoad, setIsInitialLoad] = React.useState(true)
+  const [hasMore, setHasMore] = React.useState(false)
+  const [loadingMore, setLoadingMore] = React.useState(false)
+
+  // Facet state
   const [facets, setFacets] = React.useState<Record<string, FacetValue[]>>({})
   const [selectedFacets, setSelectedFacets] = React.useState<Record<string, string[]>>({})
   const [rangeFilters, setRangeFilters] = React.useState<Record<string, { min?: number; max?: number }>>({})
   const [expandedFacets, setExpandedFacets] = React.useState<Record<string, boolean>>({})
   const [facetSearchQueries, setFacetSearchQueries] = React.useState<Record<string, string>>({})
   const [facetSearchResults, setFacetSearchResults] = React.useState<Record<string, FacetValue[]>>({})
-  const [loading, setLoading] = React.useState(false)
-  const [isInitialLoad, setIsInitialLoad] = React.useState(true)
-  const [hasMore, setHasMore] = React.useState(false)
-  const [loadingMore, setLoadingMore] = React.useState(false)
-  const [showSuggestions, setShowSuggestions] = React.useState(false)
+
+  // Image search state
   const [uploadedImage, setUploadedImage] = React.useState<File | null>(null)
   const [imagePreview, setImagePreview] = React.useState<string | null>(null)
+
+  // UI state
+  const [showSuggestions, setShowSuggestions] = React.useState(false)
+
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const offsetRef = React.useRef(0)
 
-  // Example queries for suggestions
-  const exampleQueries = [
-    "bag with a heart in the center",
-    "retro sneakers",
-    "warm clothes for a ski trip"
-  ]
-
-  // Fixed configurations for the products_2 index
-  const [displayConfigs] = React.useState<Record<string, DisplayConfig>>({
-    products_multimodal: {
-      indexUid: 'products_multimodal',
-      primaryText: 'name',
-      secondaryText: 'brand',
-      imageUrl: 'image_url',
-      additionalFields: [
-        { id: 'price-field', fieldName: 'price', label: 'Price' },
-        { id: 'reviews-field', fieldName: 'reviews', label: 'Reviews' }
-      ]
-    }
-  })
-  const [facetConfigs] = React.useState<Record<string, FacetConfig>>({
-    products_multimodal: {
-      indexUid: 'products_multimodal',
-      visibleFacets: ['color.original_name', 'category_page_id', 'brand'],
-      facetDisplayNames: {
-        'color.original_name': 'Color',
-        'category_page_id': 'Category',
-        'brand': 'Brand'
-      },
-      facetOrder: ['color.original_name', 'category_page_id', 'brand'],
-      rangeFilters: {}
-    }
-  })
-  const [sortConfigs] = React.useState<Record<string, SortConfig>>({
-    products_multimodal: {
-      indexUid: 'products_multimodal',
-      visibleSorts: ['price.value:asc', 'price.value:desc', 'reviews.bayesian_avg:desc', 'reviews.bayesian_avg:asc'],
-      sortDisplayNames: {
-        'price.value:asc': 'Price: Low to High',
-        'price.value:desc': 'Price: High to Low',
-        'reviews.bayesian_avg:desc': 'Rating: Highest First',
-        'reviews.bayesian_avg:asc': 'Rating: Lowest First'
-      },
-      sortOrder: ['reviews.bayesian_avg:desc', 'reviews.bayesian_avg:asc', 'price.value:asc', 'price.value:desc'],
-      defaultSort: 'relevance'
-    }
-  })
-  const [currentSort, setCurrentSort] = React.useState<string>("relevance")
-
-  // Removed merchandising-related searchParams - now only using basic search functionality
-
-  // Set default current sort from sort config
+  // Set default sort from config
   React.useEffect(() => {
-    const currentSortConfig = sortConfigs[selectedIndex]
-    if (currentSortConfig?.defaultSort) {
-      setCurrentSort(currentSortConfig.defaultSort)
+    const sortConfig = SORT_CONFIGS[selectedIndex]
+    if (sortConfig?.defaultSort) {
+      setCurrentSort(sortConfig.defaultSort)
     }
-  }, [selectedIndex, sortConfigs])
+  }, [selectedIndex])
 
+  // Initialize expanded state for facets
+  React.useEffect(() => {
+    const facetKeys = Object.keys(facets)
+    if (facetKeys.length > 0) {
+      setExpandedFacets(prev => {
+        const newExpanded = { ...prev }
+        facetKeys.forEach(key => {
+          if (!(key in newExpanded)) {
+            newExpanded[key] = false
+          }
+        })
+        return newExpanded
+      })
+    }
+  }, [facets])
 
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      setUploadedImage(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64Data = (reader.result as string).split(',')[1]
+        setImagePreview(base64Data)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
-  // Render star rating component
+  const clearImage = () => {
+    setUploadedImage(null)
+    setImagePreview(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+  }
+
+  const buildFilters = React.useCallback(() => {
+    const facetFilters = Object.entries(selectedFacets)
+      .filter(([, values]) => values.length > 0)
+      .map(([key, values]) => values.map(value => `${key} = "${value}"`).join(" OR "))
+
+    const rangeFilterQueries = Object.entries(rangeFilters)
+      .filter(([, range]) => range.min !== undefined || range.max !== undefined)
+      .map(([key, range]) => {
+        const conditions = []
+        if (range.min !== undefined) conditions.push(`${key} >= ${range.min}`)
+        if (range.max !== undefined) conditions.push(`${key} <= ${range.max}`)
+        return conditions.join(" AND ")
+      })
+
+    return [...facetFilters, ...rangeFilterQueries].filter(Boolean)
+  }, [selectedFacets, rangeFilters])
+
+  const performSearch = React.useCallback(async (query?: string, loadMore = false) => {
+    if (!selectedIndex) {
+      setResults([])
+      setFacets({})
+      return
+    }
+
+    const searchTerm = query !== undefined ? query : searchQuery
+    const currentOffset = loadMore ? offsetRef.current : 0
+
+    if (loadMore) {
+      setLoadingMore(true)
+    } else {
+      setLoading(true)
+      setIsInitialLoad(false)
+      offsetRef.current = 0
+    }
+
+    try {
+      const filters = buildFilters()
+      const sortParam = currentSort && currentSort !== "relevance" ? [currentSort] : undefined
+
+      const searchOptions: Record<string, unknown> = {
+        facets: ["*"],
+        filter: filters,
+        limit: RESULTS_LIMIT,
+        offset: currentOffset,
+        showRankingScore: true,
+        rankingScoreThreshold: RANKING_SCORE_THRESHOLD,
+        ...(sortParam && { sort: sortParam }),
+      }
+
+      // Add hybrid search configuration
+      if (imagePreview && uploadedImage) {
+        searchOptions.media = {
+          image: {
+            mime: uploadedImage.type,
+            data: imagePreview
+          }
+        }
+        searchOptions.hybrid = {
+          embedder: 'voyage',
+          semanticRatio
+        }
+      } else if (searchTerm) {
+        searchOptions.hybrid = {
+          embedder: 'voyage',
+          semanticRatio
+        }
+      }
+
+      const searchResult = await client.index(selectedIndex).search(
+        imagePreview ? null : searchTerm || "",
+        searchOptions
+      )
+
+      const processedResults = searchResult.hits as SearchResult[]
+      const facetDistribution = searchResult.facetDistribution || {}
+
+      // Transform facet distribution
+      const transformedFacets: Record<string, FacetValue[]> = {}
+      Object.entries(facetDistribution).forEach(([facetKey, facetData]) => {
+        transformedFacets[facetKey] = Object.entries(facetData as Record<string, number>).map(([value, count]) => ({
+          value,
+          count
+        }))
+      })
+
+      if (loadMore) {
+        setResults(prev => [...prev, ...processedResults])
+        offsetRef.current = currentOffset + processedResults.length
+      } else {
+        setResults(processedResults)
+        offsetRef.current = processedResults.length
+      }
+
+      setFacets(transformedFacets)
+      setHasMore(processedResults.length === RESULTS_LIMIT)
+    } catch (error) {
+      console.error("Search error:", error)
+      if (!loadMore) {
+        setResults([])
+        setFacets({})
+      }
+    } finally {
+      if (loadMore) {
+        setLoadingMore(false)
+      } else {
+        setLoading(false)
+      }
+    }
+  }, [client, selectedIndex, searchQuery, currentSort, semanticRatio, imagePreview, uploadedImage, buildFilters])
+
+  React.useEffect(() => {
+    const debounceTimer = setTimeout(performSearch, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(debounceTimer)
+  }, [performSearch])
+
+  React.useEffect(() => {
+    if (selectedIndex) {
+      performSearch("")
+    }
+  }, [selectedIndex, performSearch])
+
+  const handleFacetChange = (facetKey: string, value: string, checked: boolean) => {
+    setSelectedFacets(prev => ({
+      ...prev,
+      [facetKey]: checked
+        ? [...(prev[facetKey] || []), value]
+        : (prev[facetKey] || []).filter(v => v !== value)
+    }))
+  }
+
+  const toggleFacetExpansion = (facetKey: string) => {
+    setExpandedFacets(prev => ({
+      ...prev,
+      [facetKey]: !prev[facetKey]
+    }))
+  }
+
+  const handleFacetSearch = async (facetKey: string, searchQuery: string) => {
+    setFacetSearchQueries(prev => ({ ...prev, [facetKey]: searchQuery }))
+
+    if (!selectedIndex || !searchQuery.trim()) {
+      setFacetSearchResults(prev => ({ ...prev, [facetKey]: [] }))
+      return
+    }
+
+    try {
+      const index = client.index(selectedIndex)
+      const result = await index.searchForFacetValues({
+        facetName: facetKey,
+        facetQuery: searchQuery,
+        q: searchQuery,
+        filter: Object.entries(selectedFacets)
+          .filter(([key, values]) => key !== facetKey && values.length > 0)
+          .map(([key, values]) => values.map(value => `${key} = "${value}"`).join(" OR "))
+          .filter(Boolean)
+          .join(" AND ") || undefined
+      })
+
+      const facetValues: FacetValue[] = result.facetHits.map(hit => ({
+        value: hit.value,
+        count: hit.count
+      }))
+
+      setFacetSearchResults(prev => ({ ...prev, [facetKey]: facetValues }))
+    } catch (error) {
+      console.error(`Failed to search facet values for ${facetKey}:`, error)
+      setFacetSearchResults(prev => ({ ...prev, [facetKey]: [] }))
+    }
+  }
+
+  const handleRangeFilterChange = (facetKey: string, min?: number, max?: number) => {
+    setRangeFilters(prev => ({ ...prev, [facetKey]: { min, max } }))
+  }
+
+  const getFacetValues = (facetKey: string): FacetValue[] => {
+    const searchQuery = facetSearchQueries[facetKey]
+    if (searchQuery?.trim()) {
+      return facetSearchResults[facetKey] || []
+    }
+    return facets[facetKey] || []
+  }
+
+  const getVisibleFacets = (): Record<string, FacetValue[]> => {
+    const facetConfig = FACET_CONFIGS[selectedIndex]
+    if (!facetConfig) return facets
+
+    const visibleFacets: Record<string, FacetValue[]> = {}
+    const orderedKeys = facetConfig.facetOrder || facetConfig.visibleFacets
+
+    orderedKeys.forEach(facetKey => {
+      if (facetConfig.visibleFacets.includes(facetKey) && facets[facetKey]) {
+        visibleFacets[facetKey] = facets[facetKey]
+      }
+    })
+
+    return visibleFacets
+  }
+
+  const getFacetDisplayName = (facetKey: string): string => {
+    const facetConfig = FACET_CONFIGS[selectedIndex]
+    return facetConfig?.facetDisplayNames[facetKey] || facetKey
+  }
+
+  const isRangeFilter = (facetKey: string): boolean => {
+    const facetConfig = FACET_CONFIGS[selectedIndex]
+    return facetConfig?.rangeFilters?.[facetKey] || false
+  }
+
+  const getRangeFilterBounds = (facetKey: string): { min: number; max: number } => {
+    const facetValues = facets[facetKey] || []
+    const numericValues = facetValues
+      .map(f => parseFloat(f.value))
+      .filter(v => !isNaN(v))
+      .sort((a, b) => a - b)
+
+    return {
+      min: numericValues[0] || 0,
+      max: numericValues[numericValues.length - 1] || 100
+    }
+  }
+
+  const getAvailableSorts = (): Array<{ value: string; label: string }> => {
+    const sortConfig = SORT_CONFIGS[selectedIndex]
+
+    if (!sortConfig?.visibleSorts.length) {
+      return [{ value: "relevance", label: "Relevance" }]
+    }
+
+    const sorts = [{ value: "relevance", label: "Relevance" }]
+    sortConfig.sortOrder.forEach(sortKey => {
+      if (sortConfig.visibleSorts.includes(sortKey)) {
+        sorts.push({
+          value: sortKey,
+          label: sortConfig.sortDisplayNames[sortKey] || sortKey
+        })
+      }
+    })
+
+    return sorts
+  }
+
   const renderStars = (rating: number, count?: number) => {
     const stars = []
     const fullStars = Math.floor(rating)
@@ -166,17 +448,11 @@ export function SearchInterface({
 
     for (let i = 0; i < 5; i++) {
       if (i < fullStars) {
-        stars.push(
-          <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-        )
+        stars.push(<Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />)
       } else if (i === fullStars && hasHalfStar) {
-        stars.push(
-          <Star key={i} className="h-4 w-4 fill-yellow-400/50 text-yellow-400" />
-        )
+        stars.push(<Star key={i} className="h-4 w-4 fill-yellow-400/50 text-yellow-400" />)
       } else {
-        stars.push(
-          <Star key={i} className="h-4 w-4 text-gray-300" />
-        )
+        stars.push(<Star key={i} className="h-4 w-4 text-gray-300" />)
       }
     }
 
@@ -189,23 +465,20 @@ export function SearchInterface({
     )
   }
 
-  // Get field value from result, supporting nested paths and complex types
   const getFieldValue = (result: SearchResult, fieldPath: string, isImageField = false): string => {
     if (!fieldPath) return ""
-    
-    // Handle nested field paths (e.g., "price.amount", "images[0]")
+
     let value: unknown = result
     const pathParts = fieldPath.split('.')
-    
+
     for (const part of pathParts) {
       if (value === null || value === undefined) return ""
-      
-      // Handle array indexing like "images[0]"
+
       if (part.includes('[') && part.includes(']')) {
         const fieldName = part.substring(0, part.indexOf('['))
         const indexMatch = part.match(/\[(\d+)\]/)
         const arrayIndex = indexMatch ? parseInt(indexMatch[1]) : 0
-        
+
         value = (value as Record<string, unknown>)[fieldName]
         if (Array.isArray(value) && value.length > arrayIndex) {
           value = value[arrayIndex]
@@ -216,57 +489,46 @@ export function SearchInterface({
         value = (value as Record<string, unknown>)[part]
       }
     }
-    
+
     if (value === null || value === undefined) return ""
-    
-    // Handle arrays (for cases where the final value is still an array)
+
     if (Array.isArray(value)) {
-      // For image fields, return the first URL
-      if (isImageField) {
-        return value.length > 0 ? String(value[0]) : ""
-      }
-      // For other arrays, join with commas
-      return value.map(item => 
+      if (isImageField) return value.length > 0 ? String(value[0]) : ""
+      return value.map(item =>
         typeof item === 'object' ? JSON.stringify(item) : String(item)
       ).join(', ')
     }
-    
-    // Handle objects - try to extract meaningful value
+
     if (typeof value === 'object' && value !== null) {
       const obj = value as Record<string, unknown>
-      // Check for common price object structures
       if (obj.amount !== undefined) return String(obj.amount)
       if (obj.value !== undefined) return String(obj.value)
       if (obj.price !== undefined) return String(obj.price)
       if (obj.cost !== undefined) return String(obj.cost)
-      
-      // For other objects, stringify but make it readable
       return JSON.stringify(value)
     }
-    
+
     return String(value)
   }
 
-  // Render result card based on display configuration
   const renderResultCard = (result: SearchResult, index: number) => {
-    const config = displayConfigs[selectedIndex]
-    
+    const config = DISPLAY_CONFIGS[selectedIndex]
+
     if (!config) {
-      // Fallback to default rendering
       return (
         <Card key={index}>
           <CardHeader>
             <CardTitle className="text-base">
               {String(result.title || result.name || `Item ${result.id}`)}
             </CardTitle>
-            {result.description ? (
-              <CardDescription>{String(result.description)}</CardDescription>
-            ) : null}
+            {typeof result.description === 'string' && (
+              <CardDescription>{result.description}</CardDescription>
+            )}
           </CardHeader>
           <CardContent>
             <div className="space-y-1 text-sm">
               {Object.entries(result)
-                .filter(([key]) => !["id", "title", "name", "description"].includes(key))
+                .filter(([key]) => !["id", "title", "name", "description", "_rankingScore"].includes(key))
                 .slice(0, 3)
                 .map(([key, value]) => (
                   <div key={key} className="flex justify-between">
@@ -280,7 +542,6 @@ export function SearchInterface({
       )
     }
 
-    // Custom rendering based on configuration
     const primaryText = getFieldValue(result, config.primaryText)
     const secondaryText = config.secondaryText ? getFieldValue(result, config.secondaryText) : ""
     const imageUrl = config.imageUrl ? getFieldValue(result, config.imageUrl, true) : ""
@@ -319,7 +580,6 @@ export function SearchInterface({
           <CardContent className="pt-0">
             <div className="space-y-1">
               {config.additionalFields.map((field) => {
-                // Special handling for reviews field
                 if (field.fieldName === 'reviews') {
                   const reviewsData = result[field.fieldName] as { rating?: number; count?: number; bayesian_avg?: number }
                   if (!reviewsData) return null
@@ -337,7 +597,6 @@ export function SearchInterface({
                   )
                 }
 
-                // Regular field handling
                 const fieldValue = getFieldValue(result, field.fieldName)
                 if (!fieldValue) return null
                 return (
@@ -353,345 +612,21 @@ export function SearchInterface({
     )
   }
 
-
-
-  const offsetRef = React.useRef(0)
-
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      setUploadedImage(file)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        const base64Data = (reader.result as string).split(',')[1] // Remove data:image/...;base64, prefix
-        setImagePreview(base64Data)
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  const clearImage = () => {
-    setUploadedImage(null)
-    setImagePreview(null)
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""
-    }
-  }
-
-  const performSearch = React.useCallback(async (query?: string, loadMore = false) => {
-    if (!selectedIndex) {
-      setResults([])
-      setFacets({})
-      return
-    }
-
-    const searchTerm = query !== undefined ? query : searchQuery
-    const currentOffset = loadMore ? offsetRef.current : 0
-
-    if (loadMore) {
-      setLoadingMore(true)
-    } else {
-      setLoading(true)
-      setIsInitialLoad(false)
-      offsetRef.current = 0
-    }
-
-    try {
-      const baseFilter = Object.entries(selectedFacets)
-        .filter(([, values]) => values.length > 0)
-        .map(([key, values]) => values.map(value => `${key} = "${value}"`).join(" OR "))
-        .filter(filter => filter.length > 0)
-
-      // Add range filters
-      const rangeFilterQueries = Object.entries(rangeFilters)
-        .filter(([, range]) => range.min !== undefined || range.max !== undefined)
-        .map(([key, range]) => {
-          const conditions = []
-          if (range.min !== undefined) {
-            conditions.push(`${key} >= ${range.min}`)
-          }
-          if (range.max !== undefined) {
-            conditions.push(`${key} <= ${range.max}`)
-          }
-          return conditions.join(" AND ")
-        })
-        .filter(filter => filter.length > 0)
-
-      const allFilters = [...baseFilter, ...rangeFilterQueries].filter(f => f)
-
-      // Prepare sort parameter
-      const sortParam = currentSort && currentSort !== "relevance" ? [currentSort] : undefined
-
-      // Simple search - removed all merchandising logic
-      const searchOptions: Record<string, unknown> = {
-        facets: ["*"],
-        filter: allFilters,
-        limit: 12,
-        offset: currentOffset,
-        showRankingScore: true,
-        rankingScoreThreshold: 0.78,
-        ...(sortParam && { sort: sortParam }),
-        ...(imagePreview && uploadedImage && {
-          media: {
-            image: {
-              mime: uploadedImage.type,
-              data: imagePreview
-            }
-          },
-          hybrid: {
-            embedder: 'voyage',
-            semanticRatio: semanticRatio
-          }
-        }),
-        ...(!imagePreview && searchTerm && {
-          hybrid: {
-            embedder: 'voyage',
-            semanticRatio: semanticRatio
-          }
-        })
-      }
-
-      const searchResult = await client.index(selectedIndex).search(imagePreview ? null : searchTerm || "", searchOptions)
-      const processedResults = searchResult.hits as SearchResult[]
-      const facetDistribution = searchResult.facetDistribution || {}
-
-      // Transform facetDistribution to our expected format
-      const transformedFacets: Record<string, FacetValue[]> = {}
-      Object.entries(facetDistribution).forEach(([facetKey, facetData]) => {
-        transformedFacets[facetKey] = Object.entries(facetData as Record<string, number>).map(([value, count]) => ({
-          value,
-          count
-        }))
-      })
-
-      if (loadMore) {
-        setResults(prev => [...prev, ...processedResults])
-        offsetRef.current = currentOffset + processedResults.length
-      } else {
-        setResults(processedResults)
-        offsetRef.current = processedResults.length
-      }
-
-      setFacets(transformedFacets)
-      setHasMore(processedResults.length === 12)
-    } catch (error) {
-      console.error("Search error:", error)
-      if (!loadMore) {
-        setResults([])
-        setFacets({})
-      }
-    } finally {
-      if (loadMore) {
-        setLoadingMore(false)
-      } else {
-        setLoading(false)
-      }
-    }
-  }, [client, selectedIndex, searchQuery, selectedFacets, rangeFilters, currentSort, semanticRatio, imagePreview, uploadedImage])
-
-  React.useEffect(() => {
-    const debounceTimer = setTimeout(performSearch, 150)
-    return () => clearTimeout(debounceTimer)
-  }, [performSearch])
-
-  // Perform initial search when index is selected
-  React.useEffect(() => {
-    if (selectedIndex) {
-      performSearch("")
-    }
-  }, [selectedIndex, performSearch])
-
-  // Initialize expanded state for facets (collapsed by default)
-  React.useEffect(() => {
-    const facetKeys = Object.keys(facets)
-    if (facetKeys.length > 0) {
-      setExpandedFacets(prev => {
-        const newExpanded = { ...prev }
-        facetKeys.forEach(key => {
-          if (!(key in newExpanded)) {
-            newExpanded[key] = false // Collapsed by default
-          }
-        })
-        return newExpanded
-      })
-    }
-  }, [facets])
-
-  const handleFacetChange = (facetKey: string, value: string, checked: boolean) => {
-    setSelectedFacets(prev => ({
-      ...prev,
-      [facetKey]: checked
-        ? [...(prev[facetKey] || []), value]
-        : (prev[facetKey] || []).filter(v => v !== value)
-    }))
-  }
-
-  const toggleFacetExpansion = (facetKey: string) => {
-    setExpandedFacets(prev => ({
-      ...prev,
-      [facetKey]: !prev[facetKey]
-    }))
-  }
-
-  const handleFacetSearch = async (facetKey: string, searchQuery: string) => {
-    setFacetSearchQueries(prev => ({
-      ...prev,
-      [facetKey]: searchQuery
-    }))
-
-    if (!selectedIndex || !searchQuery.trim()) {
-      // If no search query, clear the search results for this facet
-      setFacetSearchResults(prev => ({
-        ...prev,
-        [facetKey]: []
-      }))
-      return
-    }
-
-    try {
-      const index = client.index(selectedIndex)
-      const result = await index.searchForFacetValues({
-        facetName: facetKey,
-        facetQuery: searchQuery,
-        q: searchQuery, // Include the main search query for context
-        filter: Object.entries(selectedFacets)
-          .filter(([key, values]) => key !== facetKey && values.length > 0)
-          .map(([key, values]) => values.map(value => `${key} = "${value}"`).join(" OR "))
-          .filter(filter => filter.length > 0)
-          .join(" AND ") || undefined
-      })
-
-      // Convert facet search results to our FacetValue format
-      const facetValues: FacetValue[] = result.facetHits.map(hit => ({
-        value: hit.value,
-        count: hit.count
-      }))
-
-      setFacetSearchResults(prev => ({
-        ...prev,
-        [facetKey]: facetValues
-      }))
-    } catch (error) {
-      console.error(`Failed to search facet values for ${facetKey}:`, error)
-      setFacetSearchResults(prev => ({
-        ...prev,
-        [facetKey]: []
-      }))
-    }
-  }
-
-  const getFacetValues = (facetKey: string): FacetValue[] => {
-    const searchQuery = facetSearchQueries[facetKey]
-    if (searchQuery && searchQuery.trim()) {
-      return facetSearchResults[facetKey] || []
-    }
-    return facets[facetKey] || []
-  }
-
-  const getVisibleFacets = (): Record<string, FacetValue[]> => {
-    const facetConfig = facetConfigs[selectedIndex]
-    if (!facetConfig) {
-      return facets // Show all facets if no configuration
-    }
-
-    const visibleFacets: Record<string, FacetValue[]> = {}
-    
-    // Use facetOrder if available, otherwise use visibleFacets order
-    const orderedKeys = facetConfig.facetOrder || facetConfig.visibleFacets
-    
-    orderedKeys.forEach(facetKey => {
-      if (facetConfig.visibleFacets.includes(facetKey) && facets[facetKey]) {
-        visibleFacets[facetKey] = facets[facetKey]
-      }
-    })
-
-    return visibleFacets
-  }
-
-  const getFacetDisplayName = (facetKey: string): string => {
-    const facetConfig = facetConfigs[selectedIndex]
-    if (facetConfig && facetConfig.facetDisplayNames[facetKey]) {
-      return facetConfig.facetDisplayNames[facetKey]
-    }
-    return facetKey // Default to the original key, capitalized will be handled in the render
-  }
-
-  const isRangeFilter = (facetKey: string): boolean => {
-    const facetConfig = facetConfigs[selectedIndex]
-    return facetConfig?.rangeFilters?.[facetKey] || false
-  }
-
-  const handleRangeFilterChange = (facetKey: string, min?: number, max?: number) => {
-    setRangeFilters(prev => ({
-      ...prev,
-      [facetKey]: { min, max }
-    }))
-  }
-
-  const getRangeFilterBounds = (facetKey: string): { min: number; max: number } => {
-    const facetValues = facets[facetKey] || []
-    const numericValues = facetValues
-      .map(f => parseFloat(f.value))
-      .filter(v => !isNaN(v))
-      .sort((a, b) => a - b)
-    
-    return {
-      min: numericValues.length > 0 ? numericValues[0] : 0,
-      max: numericValues.length > 0 ? numericValues[numericValues.length - 1] : 100
-    }
-  }
-
-  const getAvailableSorts = (): Array<{ value: string; label: string }> => {
-    const sortConfig = sortConfigs[selectedIndex]
-    
-    if (!sortConfig || !sortConfig.visibleSorts.length) {
-      // Default sorts if no configuration
-      return [
-        { value: "relevance", label: "Relevance" },
-        { value: "_geoPoint(lat, lng):asc", label: "Distance (closest first)" },
-        { value: "_geoPoint(lat, lng):desc", label: "Distance (farthest first)" }
-      ]
-    }
-
-    // Use configured sorts
-    const sorts = [{ value: "relevance", label: "Relevance" }]
-    sortConfig.sortOrder.forEach(sortKey => {
-      if (sortConfig.visibleSorts.includes(sortKey)) {
-        const displayName = sortConfig.sortDisplayNames[sortKey] || sortKey
-        // Sort keys already include direction, so use them directly
-        sorts.push({ value: sortKey, label: displayName })
-      }
-    })
-    
-    return sorts
-  }
-
-  // Get sort display name (currently unused but kept for potential future use)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-
-  // Query matching logic for pin rules
-  // Removed all merchandising helper functions
-
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <img
-              src="/meili_logo.svg"
-              alt="Meilisearch"
-              className="h-6 w-auto"
-            />
-            <span className="text-sm font-medium text-muted-foreground absolute left-1/2 -translate-x-1/2">Multimodal AI-powered search</span>
+            <img src="/meili_logo.svg" alt="Meilisearch" className="h-6 w-auto" />
+            <span className="text-sm font-medium text-muted-foreground absolute left-1/2 -translate-x-1/2">
+              Multimodal AI-powered search
+            </span>
           </div>
-
         </div>
       </header>
 
       <div className="container mx-auto p-6">
         <div className="flex gap-4 mb-6">
-
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -711,7 +646,7 @@ export function SearchInterface({
               <div className="absolute top-full mt-2 w-full bg-popover border rounded-md shadow-md z-50">
                 <div className="p-2">
                   <div className="text-xs font-medium text-muted-foreground px-2 py-1">Try searching for:</div>
-                  {exampleQueries.map((query) => (
+                  {EXAMPLE_QUERIES.map((query) => (
                     <button
                       key={query}
                       onClick={() => {
@@ -777,11 +712,7 @@ export function SearchInterface({
                     <p className="text-sm font-medium">Searching with uploaded image</p>
                     <p className="text-xs text-muted-foreground">Image-to-image search active</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={clearImage}
-                  >
+                  <Button variant="ghost" size="icon" onClick={clearImage}>
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
@@ -792,22 +723,23 @@ export function SearchInterface({
 
         <div className="flex gap-6">
           <div className="w-64 space-y-4">
-          <h3 className="font-semibold text-sm">Sort</h3>
-          <div className="flex items-center gap-1">
-            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-            <Select value={currentSort} onValueChange={setCurrentSort}>
-              <SelectTrigger className="w-40 border-none shadow-none">
-                <SelectValue placeholder="Sort" />
-              </SelectTrigger>
-              <SelectContent>
-                {getAvailableSorts().map(sort => (
-                  <SelectItem key={sort.value} value={sort.value}>
-                    {sort.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            <h3 className="font-semibold text-sm">Sort</h3>
+            <div className="flex items-center gap-1">
+              <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+              <Select value={currentSort} onValueChange={setCurrentSort}>
+                <SelectTrigger className="w-40 border-none shadow-none">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  {getAvailableSorts().map(sort => (
+                    <SelectItem key={sort.value} value={sort.value}>
+                      {sort.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {Object.keys(facets).length > 0 && (
               <div className="space-y-4">
                 <h3 className="font-semibold text-sm">Filters</h3>
@@ -816,7 +748,7 @@ export function SearchInterface({
                   const currentFacetValues = getFacetValues(facetKey)
                   const visibleValues = isExpanded ? currentFacetValues : currentFacetValues.slice(0, 5)
                   const hasMore = currentFacetValues.length > 5
-                  
+
                   return (
                     <div key={facetKey} className="space-y-2">
                       <div className="flex items-center justify-between">
@@ -828,18 +760,13 @@ export function SearchInterface({
                             onClick={() => toggleFacetExpansion(facetKey)}
                             className="h-6 w-6 p-0"
                           >
-                            {isExpanded ? (
-                              <ChevronUp className="h-3 w-3" />
-                            ) : (
-                              <ChevronDown className="h-3 w-3" />
-                            )}
+                            {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                           </Button>
                         )}
                       </div>
-                      
+
                       <div className="space-y-2">
                         {isRangeFilter(facetKey) ? (
-                          // Range filter UI
                           <div className="space-y-3">
                             <div className="text-xs text-muted-foreground">
                               Range: {getRangeFilterBounds(facetKey).min} - {getRangeFilterBounds(facetKey).max}
@@ -890,7 +817,6 @@ export function SearchInterface({
                             </div>
                           </div>
                         ) : (
-                          // Regular discrete values UI
                           <>
                             <Input
                               placeholder={`Search ${getFacetDisplayName(facetKey)}...`}
@@ -898,7 +824,7 @@ export function SearchInterface({
                               onChange={(e) => handleFacetSearch(facetKey, e.target.value)}
                               className="h-8 text-xs"
                             />
-                            
+
                             <div className="space-y-1">
                               {visibleValues.map(({ value, count }) => (
                                 <div key={value} className="flex items-center space-x-2">
@@ -918,7 +844,7 @@ export function SearchInterface({
                                 </div>
                               ))}
                             </div>
-                            
+
                             {hasMore && !isExpanded && (
                               <Button
                                 variant="ghost"
@@ -982,10 +908,6 @@ export function SearchInterface({
           </div>
         </div>
       </div>
-
     </div>
   )
 }
-
-
-
