@@ -6,7 +6,7 @@ A modern search interface built with Next.js and Meilisearch, showcasing **multi
 
 - 🔍 **Hybrid Search**: Combines full-text and semantic search with adjustable AI ratio
 - 🖼️ **Image-to-Image Search**: Upload images to find visually similar products
-- 🔤 **Text-to-Image Search**: 
+- 🔤 **Text-to-Image Search**: Describe what you’re looking for and instantly retrieve matching images
 - 📊 **Ranking Scores**: Visible relevancy scores for transparency
 
 ## 🚀 Getting Started
@@ -82,9 +82,9 @@ const SORT_CONFIGS = {
 }
 ```
 
-### Search Parameters
+### Parameters
 
-Key search parameters can be adjusted:
+Key parameters can be adjusted:
 
 - `RESULTS_LIMIT`: Number of results per page (default: 12)
 - `SEARCH_DEBOUNCE_MS`: Debounce delay for queries (default: 150ms)
@@ -98,7 +98,7 @@ Key search parameters can be adjusted:
 - **Styling**: [Tailwind CSS 4](https://tailwindcss.com/)
 - **UI Components**: [shadcn/ui](https://ui.shadcn.com/) + [Radix UI](https://www.radix-ui.com/)
 - **Icons**: [Lucide React](https://lucide.dev/)
-- **Multi-modal AI model**: [VOYAGE AI voyage-multimodal-3](https://docs.voyageai.com/docs/multimodal-embeddings)
+- **Multi-modal AI model**: [VoyageAI voyage-multimodal-3](https://docs.voyageai.com/docs/multimodal-embeddings)
 
 
 ## 🛠️ Development
