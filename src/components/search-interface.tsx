@@ -91,6 +91,14 @@ export function SearchInterface({
   const [isInitialLoad, setIsInitialLoad] = React.useState(true)
   const [hasMore, setHasMore] = React.useState(false)
   const [loadingMore, setLoadingMore] = React.useState(false)
+  const [showSuggestions, setShowSuggestions] = React.useState(false)
+
+  // Example queries for suggestions
+  const exampleQueries = [
+    "bag with a heart in the center",
+    "retro sneakers",
+    "warm clothes for a ski trip"
+  ]
 
   // Fixed configurations for the products_2 index
   const [displayConfigs] = React.useState<Record<string, DisplayConfig>>({
@@ -646,11 +654,32 @@ export function SearchInterface({
               placeholder="Search by name, brand, or image..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
               className="pl-10 pr-10"
             />
             {loading && !isInitialLoad && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            )}
+            {showSuggestions && !searchQuery && (
+              <div className="absolute top-full mt-2 w-full bg-popover border rounded-md shadow-md z-50">
+                <div className="p-2">
+                  <div className="text-xs font-medium text-muted-foreground px-2 py-1">Try searching for:</div>
+                  {exampleQueries.map((query) => (
+                    <button
+                      key={query}
+                      onClick={() => {
+                        setSearchQuery(query)
+                        setShowSuggestions(false)
+                      }}
+                      className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent rounded-sm transition-colors"
+                    >
+                      {query}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
