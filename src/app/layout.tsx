@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Meilimerch",
-  description: "Meilisearch merchandising demo",
+  title: "Multimodal AI-powered search",
+  description: "Meilisearch multimodal demo",
 };
 
 export default function RootLayout({
