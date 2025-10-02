@@ -2,8 +2,7 @@
 
 import * as React from "react"
 import { MeiliSearch } from "meilisearch"
-import { Search, ChevronDown, ChevronUp, ArrowUpDown, Star, Image, X } from "lucide-react"
-import { Input } from "@/components/ui/input"
+import { ArrowUpDown, Image } from "lucide-react"
 import {
   Select,
   SelectContent,
@@ -12,55 +11,18 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
+import { SearchBar } from "@/components/search-bar"
+import { ResultCard } from "@/components/result-card"
+import { ImageUploadBanner } from "@/components/image-upload-banner"
+import { FacetFilters } from "@/components/facet-filters"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-
-interface SearchResult {
-  id: string
-  _rankingScore?: number
-  [key: string]: unknown
-}
-
-interface FacetValue {
-  value: string
-  count: number
-}
-
-interface AdditionalField {
-  id: string
-  fieldName: string
-  label?: string
-}
-
-interface DisplayConfig {
-  indexUid: string
-  primaryText: string
-  secondaryText?: string
-  imageUrl?: string
-  additionalFields?: AdditionalField[]
-}
-
-interface FacetConfig {
-  indexUid: string
-  visibleFacets: string[]
-  facetDisplayNames: Record<string, string>
-  facetOrder: string[]
-  rangeFilters: Record<string, boolean>
-}
-
-interface SortConfig {
-  indexUid: string
-  visibleSorts: string[]
-  sortDisplayNames: Record<string, string>
-  sortOrder: string[]
-  defaultSort?: string
-}
+  SearchResult,
+  FacetValue,
+  DisplayConfig,
+  FacetConfig,
+  SortConfig
+} from "@/types/search"
+import { buildSearchFilters } from "@/lib/search-utils"
 
 interface SearchInterfaceProps {
   meilisearchUrl?: string
@@ -200,23 +162,6 @@ export function SearchInterface({
     }
   }
 
-  const buildFilters = React.useCallback(() => {
-    const facetFilters = Object.entries(selectedFacets)
-      .filter(([, values]) => values.length > 0)
-      .map(([key, values]) => values.map(value => `${key} = "${value}"`).join(" OR "))
-
-    const rangeFilterQueries = Object.entries(rangeFilters)
-      .filter(([, range]) => range.min !== undefined || range.max !== undefined)
-      .map(([key, range]) => {
-        const conditions = []
-        if (range.min !== undefined) conditions.push(`${key} >= ${range.min}`)
-        if (range.max !== undefined) conditions.push(`${key} <= ${range.max}`)
-        return conditions.join(" AND ")
-      })
-
-    return [...facetFilters, ...rangeFilterQueries].filter(Boolean)
-  }, [selectedFacets, rangeFilters])
-
   const performSearch = React.useCallback(async (query?: string, loadMore = false) => {
     if (!selectedIndex) {
       setResults([])
@@ -236,7 +181,7 @@ export function SearchInterface({
     }
 
     try {
-      const filters = buildFilters()
+      const filters = buildSearchFilters(selectedFacets, rangeFilters)
       const sortParam = currentSort && currentSort !== "relevance" ? [currentSort] : undefined
 
       const searchOptions: Record<string, unknown> = {
@@ -308,7 +253,7 @@ export function SearchInterface({
         setLoading(false)
       }
     }
-  }, [client, selectedIndex, searchQuery, currentSort, semanticRatio, imagePreview, uploadedImage, buildFilters])
+  }, [client, selectedIndex, searchQuery, currentSort, semanticRatio, imagePreview, uploadedImage, selectedFacets, rangeFilters])
 
   React.useEffect(() => {
     const debounceTimer = setTimeout(performSearch, SEARCH_DEBOUNCE_MS)
@@ -441,177 +386,6 @@ export function SearchInterface({
     return sorts
   }
 
-  const renderStars = (rating: number, count?: number) => {
-    const stars = []
-    const fullStars = Math.floor(rating)
-    const hasHalfStar = rating % 1 !== 0
-
-    for (let i = 0; i < 5; i++) {
-      if (i < fullStars) {
-        stars.push(<Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />)
-      } else if (i === fullStars && hasHalfStar) {
-        stars.push(<Star key={i} className="h-4 w-4 fill-yellow-400/50 text-yellow-400" />)
-      } else {
-        stars.push(<Star key={i} className="h-4 w-4 text-gray-300" />)
-      }
-    }
-
-    return (
-      <div className="flex items-center gap-1">
-        <div className="flex">{stars}</div>
-        <span className="text-sm font-medium">{rating.toFixed(2)}</span>
-        {count && <span className="text-xs text-muted-foreground">({count})</span>}
-      </div>
-    )
-  }
-
-  const getFieldValue = (result: SearchResult, fieldPath: string, isImageField = false): string => {
-    if (!fieldPath) return ""
-
-    let value: unknown = result
-    const pathParts = fieldPath.split('.')
-
-    for (const part of pathParts) {
-      if (value === null || value === undefined) return ""
-
-      if (part.includes('[') && part.includes(']')) {
-        const fieldName = part.substring(0, part.indexOf('['))
-        const indexMatch = part.match(/\[(\d+)\]/)
-        const arrayIndex = indexMatch ? parseInt(indexMatch[1]) : 0
-
-        value = (value as Record<string, unknown>)[fieldName]
-        if (Array.isArray(value) && value.length > arrayIndex) {
-          value = value[arrayIndex]
-        } else {
-          return ""
-        }
-      } else {
-        value = (value as Record<string, unknown>)[part]
-      }
-    }
-
-    if (value === null || value === undefined) return ""
-
-    if (Array.isArray(value)) {
-      if (isImageField) return value.length > 0 ? String(value[0]) : ""
-      return value.map(item =>
-        typeof item === 'object' ? JSON.stringify(item) : String(item)
-      ).join(', ')
-    }
-
-    if (typeof value === 'object' && value !== null) {
-      const obj = value as Record<string, unknown>
-      if (obj.amount !== undefined) return String(obj.amount)
-      if (obj.value !== undefined) return String(obj.value)
-      if (obj.price !== undefined) return String(obj.price)
-      if (obj.cost !== undefined) return String(obj.cost)
-      return JSON.stringify(value)
-    }
-
-    return String(value)
-  }
-
-  const renderResultCard = (result: SearchResult, index: number) => {
-    const config = DISPLAY_CONFIGS[selectedIndex]
-
-    if (!config) {
-      return (
-        <Card key={index}>
-          <CardHeader>
-            <CardTitle className="text-base">
-              {String(result.title || result.name || `Item ${result.id}`)}
-            </CardTitle>
-            {typeof result.description === 'string' && (
-              <CardDescription>{result.description}</CardDescription>
-            )}
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1 text-sm">
-              {Object.entries(result)
-                .filter(([key]) => !["id", "title", "name", "description", "_rankingScore"].includes(key))
-                .slice(0, 3)
-                .map(([key, value]) => (
-                  <div key={key} className="flex justify-between">
-                    <span className="text-muted-foreground capitalize">{key}:</span>
-                    <span>{String(value)}</span>
-                  </div>
-                ))}
-            </div>
-          </CardContent>
-        </Card>
-      )
-    }
-
-    const primaryText = getFieldValue(result, config.primaryText)
-    const secondaryText = config.secondaryText ? getFieldValue(result, config.secondaryText) : ""
-    const imageUrl = config.imageUrl ? getFieldValue(result, config.imageUrl, true) : ""
-
-    return (
-      <Card key={index} className="overflow-hidden relative">
-        {result._rankingScore !== undefined && (
-          <div className="absolute top-2 right-2 bg-background/90 backdrop-blur-sm px-2 py-1 rounded text-xs font-mono border z-10">
-            {result._rankingScore.toFixed(3)}
-          </div>
-        )}
-        {imageUrl && (
-          <div className="aspect-square w-full overflow-hidden">
-            <img
-              src={imageUrl}
-              alt={primaryText}
-              className="h-full w-full object-contain"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement
-                target.style.display = 'none'
-              }}
-            />
-          </div>
-        )}
-        <CardHeader className={imageUrl ? "pb-2" : ""}>
-          <CardTitle className="text-base line-clamp-2">
-            {primaryText || "Untitled"}
-          </CardTitle>
-          {secondaryText && (
-            <CardDescription className="line-clamp-2">
-              {secondaryText}
-            </CardDescription>
-          )}
-        </CardHeader>
-        {config.additionalFields && config.additionalFields.length > 0 && (
-          <CardContent className="pt-0">
-            <div className="space-y-1">
-              {config.additionalFields.map((field) => {
-                if (field.fieldName === 'reviews') {
-                  const reviewsData = result[field.fieldName] as { rating?: number; count?: number; bayesian_avg?: number }
-                  if (!reviewsData) return null
-
-                  const rating = reviewsData.bayesian_avg ?? reviewsData.rating ?? 0
-                  const count = reviewsData.count
-
-                  return (
-                    <div key={field.id} className="text-sm line-clamp-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-muted-foreground">{field.label || field.fieldName}:</span>
-                        {renderStars(rating, count)}
-                      </div>
-                    </div>
-                  )
-                }
-
-                const fieldValue = getFieldValue(result, field.fieldName)
-                if (!fieldValue) return null
-                return (
-                  <div key={field.id} className="text-sm text-muted-foreground line-clamp-1">
-                    <span className="font-medium">{field.label || field.fieldName}:</span> {fieldValue}
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        )}
-      </Card>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -627,41 +401,19 @@ export function SearchInterface({
 
       <div className="container mx-auto p-6">
         <div className="flex gap-4 mb-6">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search by name, brand, or image..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => setShowSuggestions(true)}
-              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-              className="pl-10 pr-10"
-            />
-            {loading && !isInitialLoad && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              </div>
-            )}
-            {showSuggestions && !searchQuery && (
-              <div className="absolute top-full mt-2 w-full bg-popover border rounded-md shadow-md z-50">
-                <div className="p-2">
-                  <div className="text-xs font-medium text-muted-foreground px-2 py-1">Try searching for:</div>
-                  {EXAMPLE_QUERIES.map((query) => (
-                    <button
-                      key={query}
-                      onClick={() => {
-                        setSearchQuery(query)
-                        setShowSuggestions(false)
-                      }}
-                      className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent rounded-sm transition-colors"
-                    >
-                      {query}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          <SearchBar
+            value={searchQuery}
+            onChange={setSearchQuery}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+            loading={loading && !isInitialLoad}
+            showSuggestions={showSuggestions}
+            suggestions={EXAMPLE_QUERIES}
+            onSuggestionClick={(query) => {
+              setSearchQuery(query)
+              setShowSuggestions(false)
+            }}
+          />
 
           <div className="flex items-center gap-2">
             <input
@@ -697,28 +449,11 @@ export function SearchInterface({
         </div>
 
         {imagePreview && uploadedImage && (
-          <div className="mb-4">
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-4">
-                  <div className="relative w-24 h-24 rounded overflow-hidden border">
-                    <img
-                      src={`data:${uploadedImage.type};base64,${imagePreview}`}
-                      alt="Uploaded"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">Searching with uploaded image</p>
-                    <p className="text-xs text-muted-foreground">Image-to-image search active</p>
-                  </div>
-                  <Button variant="ghost" size="icon" onClick={clearImage}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <ImageUploadBanner
+            imagePreview={imagePreview}
+            imageType={uploadedImage.type}
+            onClear={clearImage}
+          />
         )}
 
         <div className="flex gap-6">
@@ -743,124 +478,25 @@ export function SearchInterface({
             {Object.keys(facets).length > 0 && (
               <div className="space-y-4">
                 <h3 className="font-semibold text-sm">Filters</h3>
-                {Object.entries(getVisibleFacets()).map(([facetKey]) => {
-                  const isExpanded = expandedFacets[facetKey] || false
-                  const currentFacetValues = getFacetValues(facetKey)
-                  const visibleValues = isExpanded ? currentFacetValues : currentFacetValues.slice(0, 5)
-                  const hasMore = currentFacetValues.length > 5
-
-                  return (
-                    <div key={facetKey} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-medium">{getFacetDisplayName(facetKey)}</h4>
-                        {hasMore && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleFacetExpansion(facetKey)}
-                            className="h-6 w-6 p-0"
-                          >
-                            {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                          </Button>
-                        )}
-                      </div>
-
-                      <div className="space-y-2">
-                        {isRangeFilter(facetKey) ? (
-                          <div className="space-y-3">
-                            <div className="text-xs text-muted-foreground">
-                              Range: {getRangeFilterBounds(facetKey).min} - {getRangeFilterBounds(facetKey).max}
-                            </div>
-                            <div className="space-y-2">
-                              <div className="flex gap-2">
-                                <div className="flex-1">
-                                  <label className="text-xs text-muted-foreground">Min</label>
-                                  <Input
-                                    type="number"
-                                    placeholder="Min"
-                                    value={rangeFilters[facetKey]?.min || ""}
-                                    onChange={(e) => {
-                                      const min = e.target.value ? parseFloat(e.target.value) : undefined
-                                      handleRangeFilterChange(facetKey, min, rangeFilters[facetKey]?.max)
-                                    }}
-                                    className="h-8 text-xs"
-                                    min={getRangeFilterBounds(facetKey).min}
-                                    max={getRangeFilterBounds(facetKey).max}
-                                  />
-                                </div>
-                                <div className="flex-1">
-                                  <label className="text-xs text-muted-foreground">Max</label>
-                                  <Input
-                                    type="number"
-                                    placeholder="Max"
-                                    value={rangeFilters[facetKey]?.max || ""}
-                                    onChange={(e) => {
-                                      const max = e.target.value ? parseFloat(e.target.value) : undefined
-                                      handleRangeFilterChange(facetKey, rangeFilters[facetKey]?.min, max)
-                                    }}
-                                    className="h-8 text-xs"
-                                    min={getRangeFilterBounds(facetKey).min}
-                                    max={getRangeFilterBounds(facetKey).max}
-                                  />
-                                </div>
-                              </div>
-                              {(rangeFilters[facetKey]?.min !== undefined || rangeFilters[facetKey]?.max !== undefined) && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleRangeFilterChange(facetKey, undefined, undefined)}
-                                  className="h-6 text-xs w-full"
-                                >
-                                  Clear Range
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <Input
-                              placeholder={`Search ${getFacetDisplayName(facetKey)}...`}
-                              value={facetSearchQueries[facetKey] || ""}
-                              onChange={(e) => handleFacetSearch(facetKey, e.target.value)}
-                              className="h-8 text-xs"
-                            />
-
-                            <div className="space-y-1">
-                              {visibleValues.map(({ value, count }) => (
-                                <div key={value} className="flex items-center space-x-2">
-                                  <Checkbox
-                                    id={`${facetKey}-${value}`}
-                                    checked={selectedFacets[facetKey]?.includes(value) || false}
-                                    onCheckedChange={(checked) =>
-                                      handleFacetChange(facetKey, value, checked as boolean)
-                                    }
-                                  />
-                                  <label
-                                    htmlFor={`${facetKey}-${value}`}
-                                    className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1"
-                                  >
-                                    {value} ({count})
-                                  </label>
-                                </div>
-                              ))}
-                            </div>
-
-                            {hasMore && !isExpanded && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => toggleFacetExpansion(facetKey)}
-                                className="h-6 text-xs text-muted-foreground hover:text-foreground w-full"
-                              >
-                                Show {currentFacetValues.length - 5} more
-                              </Button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
+                {Object.entries(getVisibleFacets()).map(([facetKey]) => (
+                  <FacetFilters
+                    key={facetKey}
+                    facetKey={facetKey}
+                    displayName={getFacetDisplayName(facetKey)}
+                    values={getFacetValues(facetKey)}
+                    selectedValues={selectedFacets[facetKey] || []}
+                    isExpanded={expandedFacets[facetKey] || false}
+                    isRangeFilter={isRangeFilter(facetKey)}
+                    rangeMin={rangeFilters[facetKey]?.min}
+                    rangeMax={rangeFilters[facetKey]?.max}
+                    rangeBounds={isRangeFilter(facetKey) ? getRangeFilterBounds(facetKey) : undefined}
+                    searchQuery={facetSearchQueries[facetKey] || ""}
+                    onToggleExpansion={() => toggleFacetExpansion(facetKey)}
+                    onValueChange={(value, checked) => handleFacetChange(facetKey, value, checked)}
+                    onRangeChange={(min, max) => handleRangeFilterChange(facetKey, min, max)}
+                    onSearch={(query) => handleFacetSearch(facetKey, query)}
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -889,7 +525,13 @@ export function SearchInterface({
             {!loading && results.length > 0 && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {results.map((result, index) => renderResultCard(result, index))}
+                  {results.map((result, index) => (
+                    <ResultCard
+                      key={`${result.id}-${index}`}
+                      result={result}
+                      config={DISPLAY_CONFIGS[selectedIndex]}
+                    />
+                  ))}
                 </div>
                 {hasMore && (
                   <div className="flex justify-center mt-6">
