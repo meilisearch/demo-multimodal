@@ -23,6 +23,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 
 interface SearchResult {
   id: string
+  _rankingScore?: number
   [key: string]: unknown
 }
 
@@ -285,7 +286,12 @@ export function SearchInterface({
     const imageUrl = config.imageUrl ? getFieldValue(result, config.imageUrl, true) : ""
 
     return (
-      <Card key={index} className="overflow-hidden">
+      <Card key={index} className="overflow-hidden relative">
+        {result._rankingScore !== undefined && (
+          <div className="absolute top-2 right-2 bg-background/90 backdrop-blur-sm px-2 py-1 rounded text-xs font-mono border z-10">
+            {result._rankingScore.toFixed(3)}
+          </div>
+        )}
         {imageUrl && (
           <div className="aspect-square w-full overflow-hidden">
             <img
@@ -422,6 +428,8 @@ export function SearchInterface({
         filter: allFilters,
         limit: 12,
         offset: currentOffset,
+        showRankingScore: true,
+        rankingScoreThreshold: 0.78,
         ...(sortParam && { sort: sortParam }),
         ...(imagePreview && uploadedImage && {
           media: {
