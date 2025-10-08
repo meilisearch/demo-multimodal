@@ -74,9 +74,9 @@ const SORT_CONFIGS: Record<string, SortConfig> = {
 }
 
 const EXAMPLE_QUERIES = [
-  "steel cufflinks for men",
-  "casual summer accessories",
-  "designer fashion items"
+  "bag with flowers",
+  "comfy pants for a long flight",
+  "sporty shoes"
 ]
 
 const RESULTS_LIMIT = 12
