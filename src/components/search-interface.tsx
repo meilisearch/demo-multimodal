@@ -31,56 +31,57 @@ interface SearchInterfaceProps {
 
 // Configuration constants
 const DISPLAY_CONFIGS: Record<string, DisplayConfig> = {
-  products_multimodal: {
-    indexUid: 'products_multimodal',
-    primaryText: 'name',
-    secondaryText: 'brand',
-    imageUrl: 'image_url',
+  'fashion-products-v2': {
+    indexUid: 'fashion-products-v2',
+    primaryText: 'productDisplayName',
+    secondaryText: 'brandName',
+    imageUrl: 'imageUrls.default',
     additionalFields: [
       { id: 'price-field', fieldName: 'price', label: 'Price' },
-      { id: 'reviews-field', fieldName: 'reviews', label: 'Reviews' }
+      { id: 'category-field', fieldName: 'masterCategory', label: 'Category' },
+      { id: 'color-field', fieldName: 'baseColour', label: 'Color' }
     ]
   }
 }
 
 const FACET_CONFIGS: Record<string, FacetConfig> = {
-  products_multimodal: {
-    indexUid: 'products_multimodal',
-    visibleFacets: ['color.original_name', 'category_page_id', 'brand'],
+  'fashion-products-v2': {
+    indexUid: 'fashion-products-v2',
+    visibleFacets: ['gender', 'masterCategory', 'baseColour', 'season', 'usage'],
     facetDisplayNames: {
-      'color.original_name': 'Color',
-      'category_page_id': 'Category',
-      'brand': 'Brand'
+      'gender': 'Gender',
+      'masterCategory': 'Category',
+      'baseColour': 'Color',
+      'season': 'Season',
+      'usage': 'Usage'
     },
-    facetOrder: ['color.original_name', 'category_page_id', 'brand'],
+    facetOrder: ['gender', 'masterCategory', 'baseColour', 'season', 'usage'],
     rangeFilters: {}
   }
 }
 
 const SORT_CONFIGS: Record<string, SortConfig> = {
-  products_multimodal: {
-    indexUid: 'products_multimodal',
-    visibleSorts: ['price.value:asc', 'price.value:desc', 'reviews.bayesian_avg:desc', 'reviews.bayesian_avg:asc'],
+  'fashion-products-v2': {
+    indexUid: 'fashion-products-v2',
+    visibleSorts: ['price:asc', 'price:desc'],
     sortDisplayNames: {
-      'price.value:asc': 'Price: Low to High',
-      'price.value:desc': 'Price: High to Low',
-      'reviews.bayesian_avg:desc': 'Rating: Highest First',
-      'reviews.bayesian_avg:asc': 'Rating: Lowest First'
+      'price:asc': 'Price: Low to High',
+      'price:desc': 'Price: High to Low'
     },
-    sortOrder: ['reviews.bayesian_avg:desc', 'reviews.bayesian_avg:asc', 'price.value:asc', 'price.value:desc'],
+    sortOrder: ['price:asc', 'price:desc'],
     defaultSort: 'relevance'
   }
 }
 
 const EXAMPLE_QUERIES = [
-  "bag with a heart in the center",
-  "retro sneakers",
-  "warm clothes for a ski trip"
+  "steel cufflinks for men",
+  "casual summer accessories",
+  "designer fashion items"
 ]
 
 const RESULTS_LIMIT = 12
 const SEARCH_DEBOUNCE_MS = 150
-const RANKING_SCORE_THRESHOLD = 0.65
+const RANKING_SCORE_THRESHOLD = 0.6
 
 export function SearchInterface({
   meilisearchUrl = process.env.NEXT_PUBLIC_MEILISEARCH_URL || "http://localhost:7700",
@@ -204,7 +205,7 @@ export function SearchInterface({
         }
         searchOptions.hybrid = {
           embedder: 'voyage',
-          semanticRatio
+          semanticRatio: 1.0  // Use 100% semantic for image search
         }
       } else if (searchTerm) {
         searchOptions.hybrid = {

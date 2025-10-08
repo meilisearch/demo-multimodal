@@ -5,7 +5,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { StarRating } from "@/components/star-rating"
 import { SearchResult, DisplayConfig } from "@/types/search"
 import { getFieldValue } from "@/lib/search-utils"
 
@@ -81,31 +80,18 @@ export function ResultCard({ result, config }: ResultCardProps) {
         <CardContent className="pt-0">
           <div className="space-y-1">
             {config.additionalFields.map((field) => {
-              if (field.fieldName === 'reviews') {
-                const reviewsData = result[field.fieldName] as {
-                  rating?: number
-                  count?: number
-                  bayesian_avg?: number
-                }
-                if (!reviewsData) return null
+              const fieldValue = getFieldValue(result, field.fieldName)
+              if (!fieldValue) return null
 
-                const rating = reviewsData.bayesian_avg ?? reviewsData.rating ?? 0
-                const count = reviewsData.count
-
+              // Format price with currency symbol
+              if (field.fieldName === 'price') {
                 return (
-                  <div key={field.id} className="text-sm line-clamp-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-muted-foreground">
-                        {field.label || field.fieldName}:
-                      </span>
-                      <StarRating rating={rating} count={count} />
-                    </div>
+                  <div key={field.id} className="text-sm text-muted-foreground line-clamp-1">
+                    <span className="font-medium">{field.label || field.fieldName}:</span> ₹{fieldValue}
                   </div>
                 )
               }
 
-              const fieldValue = getFieldValue(result, field.fieldName)
-              if (!fieldValue) return null
               return (
                 <div key={field.id} className="text-sm text-muted-foreground line-clamp-1">
                   <span className="font-medium">{field.label || field.fieldName}:</span> {fieldValue}
