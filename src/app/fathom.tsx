@@ -7,12 +7,15 @@ import { usePathname, useSearchParams } from 'next/navigation';
 function TrackPageView() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const fathomId = process.env.NEXT_PUBLIC_FATHOM_ID || '';
 
   useEffect(() => {
-    load(process.env.NEXT_PUBLIC_FATHOM_ID, {
+    if (!fathomId) return;
+
+    load(fathomId, {
       auto: false
     });
-  }, []);
+  }, [fathomId]);
 
   useEffect(() => {
     if (!pathname) return;
